@@ -96,7 +96,7 @@ func basicGolangTypeFromParam(param *Param) jen.Code {
 		}
 	case "base32":
 		if param.Required {
-			return jen.Qual(encodingPackage, "*Base32Value")
+			return jen.Op("*").Qual(encodingPackage, "Base32Value")
 		} else {
 			return jen.Qual(maybePackage, "Base32Value")
 		}
