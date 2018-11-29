@@ -5,6 +5,7 @@
    * [x] Mapper Model
  * [ ] Generators
    * [ ] Struct Generator
+     * [ ] Where to attach ParamName function (flag name of named parameter)?
    * [ ] Parse Generator
    * [ ] Build Generator
  * [ ] message/ package: Constructors

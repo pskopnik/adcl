@@ -66,7 +66,7 @@ type RenderingContext struct {
 	// ContentVar contains code to access the content struct the field is
 	// contained in.
 	ContentVar jen.Code
-	// FieldInfo contains a FieldInfo object created prior by the
+	// FieldInfo contains a FieldInfo instance created prior by the
 	// ComposeFieldInfoFunc of the Mapper.
 	FieldInfo *FieldInfo
 	// ErrorVar contains the code to access an existing error variable. If

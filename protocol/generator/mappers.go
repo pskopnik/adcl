@@ -42,9 +42,11 @@ var BasicMapper = &Mapper{
 			},
 			ProcessFieldValueFunc: func(ctx *RenderingContext, value jen.Code) jen.Code {
 				if ctx.FieldInfo.FieldIsMaybe {
-					return jen.Add(ctx.ContentVar).Dot("").Add(ctx.FieldInfo.FieldName).Dot("").Id("Set").Call(jen.Add(value))
+					return jen.Add(ctx.ContentVar).Dot("").Add(ctx.FieldInfo.FieldName).
+						Dot("").Id("Set").Call(jen.Add(value))
 				} else {
-					return jen.Add(ctx.ContentVar).Dot("").Add(ctx.FieldInfo.FieldName).Op("=").Add(value).Call()
+					return jen.Add(ctx.ContentVar).Dot("").Add(ctx.FieldInfo.FieldName).
+						Op("=").Add(value).Call()
 				}
 			},
 		},
@@ -57,9 +59,11 @@ var BasicMapper = &Mapper{
 			},
 			ProcessFieldValueFunc: func(ctx *RenderingContext, value jen.Code) jen.Code {
 				if ctx.FieldInfo.FieldIsMaybe {
-					return jen.Add(ctx.ContentVar).Dot("").Add(ctx.FieldInfo.FieldName).Dot("").Id("Set").Call(jen.Add(value))
+					return jen.Add(ctx.ContentVar).Dot("").Add(ctx.FieldInfo.FieldName).
+						Dot("").Id("Set").Call(jen.Add(value))
 				} else {
-					return jen.Add(ctx.ContentVar).Dot("").Add(ctx.FieldInfo.FieldName).Op("=").Add(value).Call()
+					return jen.Add(ctx.ContentVar).Dot("").Add(ctx.FieldInfo.FieldName).
+						Op("=").Add(value).Call()
 				}
 			},
 		},

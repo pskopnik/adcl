@@ -110,8 +110,10 @@ func (s *StructGenerator) generateFile() *jen.File {
 
 	file.Type().Id(s.flagTypeName).String()
 
-	file.Const().
-		DefsFunc(s.generateFlagConstants)
+	if len(s.namedParams) > 0 {
+		file.Const().
+			DefsFunc(s.generateFlagConstants)
+	}
 
 	file.Var().Id("_").Id("ParamAccessor").Op("=").Op("&").Id(s.typeName).Values()
 
@@ -209,29 +211,30 @@ func (s *StructGenerator) generatePositional(group *jen.Group) {
 	if numStatic == len(s.positionalParams) {
 		// All params have static multiplicity, build slice literal.
 
-		var values []jen.Code
-
-		for _, param := range s.positionalParams {
-			if param.FieldInfo.StrIsSingular {
-				values = append(
-					values,
-					jen.Id(s.typeLetter).Dot("").Add(param.FieldInfo.StrFieldName),
-				)
-			} else {
-				for i := 0; i < param.FieldInfo.StaticMultiplicity; i++ {
-					values = append(values, jen.Id(s.typeLetter).Dot("").
-						Add(param.FieldInfo.StrFieldName).Index(jen.Lit(i)))
+		group.Return(
+			jen.Index().String().ValuesFunc(func(group *jen.Group) {
+				for _, param := range s.positionalParams {
+					if param.FieldInfo.StrIsSingular {
+						group.Id(s.typeLetter).Dot("").Add(param.FieldInfo.StrFieldName)
+					} else {
+						for i := 0; i < param.FieldInfo.StaticMultiplicity; i++ {
+							group.Id(s.typeLetter).Dot("").Add(param.FieldInfo.StrFieldName).
+								Index(jen.Lit(i))
+						}
+					}
 				}
-			}
-		}
-
-		group.Return(jen.Index().String().Values(values...))
+			}),
+		)
 	} else if numStatic == 0 && len(s.positionalParams) == 1 {
-		// There is only a single, dynamic multiplicity param, return its str field.
+		// There is only a single, dynamic multiplicity param, return its str
+		// field.
 
-		group.Return(jen.Id(s.typeLetter).Dot("").Add(s.positionalParams[0].FieldInfo.StrFieldName))
+		group.Return(
+			jen.Id(s.typeLetter).Dot("").Add(s.positionalParams[0].FieldInfo.StrFieldName),
+		)
 	} else {
-		// Params have mixed multiplicity, build slice of positionals manually.
+		// Params have mixed multiplicity, build slice of positionals
+		// manually.
 
 		group.Id("positionals").Op(":=").Make(
 			jen.Index().String(),
