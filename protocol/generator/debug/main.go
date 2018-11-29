@@ -6,5 +6,8 @@ import (
 
 func main() {
 	g := generator.NewStructGenerator(&resCommand)
-	g.Generate()
+	err := g.Generate()
+	if err != nil {
+		panic(err)
+	}
 }

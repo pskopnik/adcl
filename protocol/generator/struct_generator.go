@@ -292,12 +292,311 @@ func (s *StructGenerator) generatePosLen(group *jen.Group) {
 }
 
 func (s *StructGenerator) generatePosAt(group *jen.Group) {
+	var numStatic int
+
+	if len(s.positionalParams) == 0 {
+		group.Panic(jen.Lit("index out of range"))
+		return
+	}
+
+	for _, param := range s.positionalParams {
+		if param.FieldInfo.Multiplicity == MultiplicityStatic {
+			numStatic++
+		}
+	}
+
+	if numStatic == len(s.positionalParams) {
+		// All params have static multiplicity, build switch statement.
+
+		var runningIndex int
+
+		group.Switch(jen.Id("i")).BlockFunc(func(group *jen.Group) {
+			for _, param := range s.positionalParams {
+				if param.FieldInfo.StrIsSingular {
+					group.Case(jen.Lit(runningIndex)).Block(
+						jen.Return(
+							jen.Id(s.typeLetter).Dot("").Add(param.FieldInfo.StrFieldName),
+						),
+					)
+					runningIndex++
+				} else {
+					for i := 0; i < param.FieldInfo.StaticMultiplicity; i++ {
+						group.Case(jen.Lit(runningIndex)).Block(
+							jen.Return(
+								jen.Id(s.typeLetter).Dot("").Add(param.FieldInfo.StrFieldName).
+									Index(jen.Lit(i)),
+							),
+						)
+						runningIndex++
+					}
+				}
+			}
+
+			group.Default().Block(
+				jen.Panic(jen.Lit("index out of range")),
+			)
+		})
+	} else if numStatic == 0 && len(s.positionalParams) == 1 {
+		// There is only a single, dynamic multiplicity param, return the ith
+		// element of its str field.
+
+		group.Return(
+			jen.Id(s.typeLetter).Dot("").Add(s.positionalParams[0].FieldInfo.StrFieldName).
+				Index(jen.Id("i")),
+		)
+	} else {
+		// Params have mixed multiplicity, build conditional switch statement
+		// manually.
+
+		var runningStaticIndex int
+		var runningDynamicLens []jen.Code
+
+		runningLenStmt := func(op string, dynamics ...jen.Code) *jen.Statement {
+			var stmt jen.Statement
+
+			if runningStaticIndex > 0 || len(runningDynamicLens) == 0 {
+				stmt.Lit(runningStaticIndex).Op(op)
+			}
+
+			for _, dynamic := range runningDynamicLens {
+				stmt.Add(dynamic).Op(op)
+			}
+
+			for _, dynamic := range dynamics {
+				stmt.Add(dynamic).Op(op)
+			}
+
+			// Remove last Op(op)
+			stmt = stmt[:len(stmt)-1]
+
+			return &stmt
+		}
+
+		group.Switch().BlockFunc(func(group *jen.Group) {
+			for _, param := range s.positionalParams {
+				if param.FieldInfo.StrIsSingular {
+					group.Case(
+						jen.Id("i").Op("==").Add(runningLenStmt("+")),
+					).Block(
+						jen.Return(
+							jen.Id(s.typeLetter).Dot("").Add(param.FieldInfo.StrFieldName),
+						),
+					)
+					runningStaticIndex++
+				} else if param.FieldInfo.Multiplicity == MultiplicityStatic {
+					for i := 0; i < param.FieldInfo.StaticMultiplicity; i++ {
+						group.Case(
+							jen.Id("i").Op("==").Add(runningLenStmt("+")),
+						).Block(
+							jen.Return(
+								jen.Id(s.typeLetter).Dot("").Add(param.FieldInfo.StrFieldName).
+									Index(jen.Lit(i).Op("-").Add(runningLenStmt("-"))),
+							),
+						)
+						runningStaticIndex++
+					}
+				} else {
+					ctx := s.createRenderingContext(param)
+					dynamicLen := param.FieldInfo.DynamicMultiplicity(&ctx)
+
+					group.Case(
+						jen.Id("i").Op("<").Add(runningLenStmt("+", dynamicLen)),
+					).Block(
+						jen.Return(
+							jen.Id(s.typeLetter).Dot("").Add(param.FieldInfo.StrFieldName).
+								// TODO: Omit -0 from [i-0]
+								Index(jen.Lit("i").Op("-").Add(runningLenStmt("-"))),
+						),
+					)
+					runningDynamicLens = append(runningDynamicLens, dynamicLen)
+				}
+			}
+
+			group.Default().Block(
+				jen.Panic(jen.Lit("index out of range")),
+			)
+		})
+	}
 }
 
 func (s *StructGenerator) generateNamed(group *jen.Group) {
+	if len(s.namedParams) == 0 {
+		// There are no named parameters, return the Flags map.
+		group.Return(
+			jen.Id(s.typeLetter).Dot("Flags"),
+		)
+
+		return
+	}
+
+	group.Id("params").Op(":=").Make(jen.Map(jen.String()).String())
+
+	group.Line()
+
+	group.For(
+		jen.List(jen.Id("key"), jen.Id("val")).
+			Op(":=").
+			Range().Id(s.typeLetter).Dot("Flags"),
+	).Block(
+		jen.Id("params").Index(jen.Id("key")).Op("=").Id("val"),
+	)
+
+	group.Line()
+
+	for _, param := range s.namedParams {
+		strStmt := jen.Id(s.typeLetter).Dot("").Add(param.FieldInfo.StrFieldName)
+		if !param.FieldInfo.StrIsSingular {
+			strStmt.Index(jen.Lit(0))
+		}
+
+		setStmt := jen.Id("params").Index(
+			jen.Add(strStmt).
+				Index(
+					jen.Empty(), jen.Lit(2),
+				),
+		).
+			Op("=").
+			Add(strStmt).
+			Index(
+				jen.Lit(2), jen.Empty(),
+			)
+
+		if param.FieldInfo.FieldIsMaybe || !param.FieldInfo.StrIsSingular {
+			var condStmts []jen.Code
+
+			if param.FieldInfo.FieldIsMaybe {
+				condStmts = append(
+					condStmts,
+					jen.Id(s.typeLetter).Dot("").Add(param.FieldInfo.FieldName).
+						Dot("IsSet"),
+				)
+			}
+			if !param.FieldInfo.StrIsSingular {
+				condStmts = append(
+					condStmts,
+					jen.Len(
+						jen.Id(s.typeLetter).Dot("").Add(param.FieldInfo.StrFieldName),
+					).
+						Op(">").Lit(0),
+				)
+			}
+
+			group.If(
+				s.opJoin("&&", condStmts...)...,
+			).
+				Block(
+					setStmt,
+				)
+		} else {
+			group.Add(
+				setStmt,
+			)
+		}
+	}
+
+	group.Line()
+
+	group.Return(jen.Id("params"))
 }
 
 func (s *StructGenerator) generateNamedGet(group *jen.Group) {
+	// TODO: Should the switch block be wrapped in the follwing if?
+	// group.If(jen.Len(jen.Id("key")).Op("==").Lit(2)).Block()
+
+	if len(s.namedParams) > 0 {
+		group.Switch(jen.Id(s.flagTypeName).Parens(jen.Id("key"))).
+			BlockFunc(func(group *jen.Group) {
+				for _, param := range s.namedParams {
+					ctx := s.createContext(param)
+					name := param.Mapper.Parser.Named.ParamName(&ctx)
+
+					returnStrStmt := jen.Id(s.typeLetter).Dot("").
+						Add(param.FieldInfo.StrFieldName)
+					if !param.FieldInfo.StrIsSingular {
+						returnStrStmt.Index(jen.Lit(0))
+					}
+					returnStrStmt.Index(
+						jen.Lit(2), jen.Empty(),
+					)
+
+					if param.FieldInfo.FieldIsMaybe || !param.FieldInfo.StrIsSingular {
+						var condStmts []jen.Code
+
+						if param.FieldInfo.FieldIsMaybe {
+							condStmts = append(
+								condStmts,
+								jen.Id(s.typeLetter).Dot("").Add(param.FieldInfo.FieldName).
+									Dot("IsSet"),
+							)
+						}
+						if !param.FieldInfo.StrIsSingular {
+							condStmts = append(
+								condStmts,
+								jen.Len(
+									jen.Id(s.typeLetter).Dot("").Add(param.FieldInfo.StrFieldName),
+								).
+									Op(">").Lit(0),
+							)
+						}
+
+						group.Case(jen.Id(s.flagTypeName + name)).
+							If(
+								s.opJoin("&&", condStmts...)...,
+							).
+							Block(
+								jen.Return(jen.List(
+									returnStrStmt,
+									jen.Lit(true),
+								)),
+							).Else().
+							Block(
+								jen.Return(jen.List(
+									jen.Lit(""),
+									jen.Lit(false),
+								)),
+							)
+					} else {
+						group.Case(jen.Id(s.flagTypeName + name)).
+							Return(jen.List(
+								returnStrStmt,
+								jen.Lit(true),
+							))
+					}
+
+				}
+
+			})
+
+		group.Line()
+	}
+
+	group.
+		List(
+			jen.Id("key"), jen.Id("val"),
+		).
+		Op(":=").
+		Id(s.typeLetter).Dot("Flags").Index(jen.Id("key"))
+
+	group.Return(jen.List(
+		jen.Id("key"), jen.Id("val"),
+	))
+}
+
+func (s *StructGenerator) opJoin(op string, codes ...jen.Code) jen.Statement {
+	var stmt jen.Statement
+
+	for _, code := range codes {
+		stmt.Add(code).Op(op)
+	}
+
+	if len(stmt) > 0 {
+		// Remove last Op(op)
+		stmt = stmt[:len(stmt)-1]
+	}
+
+	// TODO: Return Empty() when stmt is empty?
+
+	return stmt
 }
 
 func (s *StructGenerator) createRenderingContext(param paramInfo) RenderingContext {
